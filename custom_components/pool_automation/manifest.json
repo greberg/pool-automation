@@ -1,0 +1,12 @@
+{
+  "domain": "pool_automation",
+  "name": "Pool Automation",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/YOUR_GITHUB_USERNAME/pool-automation",
+  "issue_tracker": "https://github.com/YOUR_GITHUB_USERNAME/pool-automation/issues",
+  "dependencies": ["mqtt"],
+  "codeowners": ["@YOUR_GITHUB_USERNAME"],
+  "requirements": [],
+  "iot_class": "local_push"
+}

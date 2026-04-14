@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Pool Automation Setup",
+        "description": "Configure your pool automation system.",
+        "data": {
+          "name": "Pool name",
+          "pool_volume_m3": "Pool volume (m³)",
+          "ph_min": "Minimum acceptable pH",
+          "ph_max": "Maximum acceptable pH",
+          "ph_target": "Target pH",
+          "chlorine_min": "Minimum free chlorine (ppm)",
+          "chlorine_max": "Maximum free chlorine (ppm)",
+          "chlorine_target": "Target free chlorine (ppm)",
+          "hcl_concentration": "HCl concentration (%)",
+          "naclo_concentration": "NaClO concentration (%)",
+          "mqtt_topic_prefix": "MQTT topic prefix",
+          "sensor_ph": "pH sensor entity ID",
+          "sensor_orp": "ORP sensor entity ID",
+          "sensor_temperature": "Water temperature sensor entity ID",
+          "sensor_circulation_rpm": "Circulation pump RPM entity ID",
+          "button_dose_ph_down": "pH-down pump dose button entity ID",
+          "button_dose_chlorine": "Chlorine pump dose button entity ID",
+          "button_dose_floc": "Flocculant pump dose button entity ID",
+          "number_volume_ph": "pH pump volume number entity ID",
+          "number_volume_chlorine": "Chlorine pump volume number entity ID",
+          "number_volume_floc": "Flocculant pump volume number entity ID",
+          "number_duration_floc": "Flocculant pump duration number entity ID",
+          "timer_chemicals": "Chemicals-dosed timer entity ID",
+          "enable_floc": "Enable automatic flocculant dosing",
+          "floc_volume_ml": "Flocculant dose volume (mL)",
+          "floc_duration_s": "Flocculant dose duration (s)",
+          "min_circulation_rpm": "Minimum circulation RPM required for dosing"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to MQTT broker",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Pool Automation is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Pool Automation Options",
+        "data": {
+          "pool_volume_m3": "Pool volume (m³)",
+          "ph_min": "Minimum acceptable pH",
+          "ph_max": "Maximum acceptable pH",
+          "ph_target": "Target pH",
+          "chlorine_min": "Minimum free chlorine (ppm)",
+          "chlorine_max": "Maximum free chlorine (ppm)",
+          "chlorine_target": "Target free chlorine (ppm)",
+          "hcl_concentration": "HCl concentration (%)",
+          "naclo_concentration": "NaClO concentration (%)",
+          "enable_floc": "Enable automatic flocculant dosing",
+          "floc_volume_ml": "Flocculant dose volume (mL)",
+          "floc_duration_s": "Flocculant dose duration (s)",
+          "min_circulation_rpm": "Minimum circulation RPM required for dosing"
+        }
+      }
+    }
+  }
+}
