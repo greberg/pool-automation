@@ -2,5 +2,6 @@
   "name": "Pool Automation",
   "description": "Automated pool chemical management for pH and chlorine dosing with ML-based free chlorine estimation.",
   "render_readme": true,
-  "homeassistant": "2023.1.0"
+  "homeassistant": "2023.1.0",
+  "icon": "icon.png"
 }
