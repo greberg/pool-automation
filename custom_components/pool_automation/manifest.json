@@ -1,7 +1,7 @@
 {
   "domain": "pool_automation",
   "name": "Pool Automation",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "config_flow": true,
   "documentation": "https://github.com/greberg/pool-automation",
   "issue_tracker": "https://github.com/greberg/pool-automation/issues",
