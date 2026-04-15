@@ -90,3 +90,31 @@ ENTITY_DOSE_CHLORINE = "dose_chlorine_ml"
 ENTITY_AUTOMATION_ENABLED = "automation_enabled"
 ENTITY_MANUAL_DOSE_PH = "manual_dose_ph"
 ENTITY_MANUAL_DOSE_CHLORINE = "manual_dose_chlorine"
+ENTITY_HCL_REMAINING = "hcl_remaining_ml"
+ENTITY_NACLO_REMAINING = "naclo_remaining_ml"
+
+# v3: Binary pump state sensors (for safety checks and tank tracking)
+CONF_BINARY_PUMP_PH = "binary_pump_ph"
+CONF_BINARY_PUMP_CHLORINE = "binary_pump_chlorine"
+
+# v3: Sensors reporting the actual volume dosed each cycle (for tank tracking)
+CONF_SENSOR_DOSED_PH = "sensor_dosed_ph"
+CONF_SENSOR_DOSED_CHLORINE = "sensor_dosed_chlorine"
+
+# v3: Initial tank volumes (mL) — changing these in options = "I just refilled"
+CONF_TANK_HCL_INITIAL = "tank_hcl_initial_ml"
+CONF_TANK_NACLO_INITIAL = "tank_naclo_initial_ml"
+
+DEFAULT_TANK_HCL_INITIAL = 5000.0   # 5 litres
+DEFAULT_TANK_NACLO_INITIAL = 5000.0  # 5 litres
+
+# v3: HA event names fired by the dosing cycle
+EVENT_DOSING_STARTED = "pool_automation_dosing_started"
+EVENT_DOSING_SKIPPED = "pool_automation_dosing_skipped"
+
+# v3: Hourly dosing loop interval
+DOSING_INTERVAL_SECONDS = 3600
+
+# v3: Persistent storage for tank volumes
+STORE_VERSION = 1
+STORE_KEY = "pool_automation_tanks"

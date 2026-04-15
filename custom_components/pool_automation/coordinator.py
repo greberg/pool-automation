@@ -1,19 +1,37 @@
-"""Coordinator for Pool Automation integration."""
+"""Coordinator for Pool Automation integration – v3.
+
+v3 changes vs v2
+----------------
+* Hourly dosing loop moved from YAML automations into the coordinator
+  (`async_run_dosing_cycle` scheduled via `async_track_time_interval`).
+* Single `_safe_to_dose()` method replaces duplicated YAML conditions.
+* Tank volume tracking via `async_track_state_change_event` on pump binary
+  sensors; state persisted across restarts with `homeassistant.helpers.storage`.
+* HA events (`pool_automation_dosing_started` / `pool_automation_dosing_skipped`)
+  let YAML automations send push notifications without coupling delivery
+  channel to component logic.
+"""
 from __future__ import annotations
 
 import logging
-import math
 from datetime import timedelta
 from typing import Any
 
 from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CHLORINE_GRAMS_PER_10K_L_PER_PPM,
     CHLORINE_LIQUID_DENSITY,
+    CONF_BINARY_PUMP_CHLORINE,
+    CONF_BINARY_PUMP_PH,
     CONF_BUTTON_DOSE_CHLORINE,
     CONF_BUTTON_DOSE_FLOC,
     CONF_BUTTON_DOSE_PH,
@@ -36,9 +54,13 @@ from .const import (
     CONF_PH_TARGET,
     CONF_POOL_VOLUME,
     CONF_SENSOR_CIRCULATION,
+    CONF_SENSOR_DOSED_CHLORINE,
+    CONF_SENSOR_DOSED_PH,
     CONF_SENSOR_ORP,
     CONF_SENSOR_PH,
     CONF_SENSOR_TEMP,
+    CONF_TANK_HCL_INITIAL,
+    CONF_TANK_NACLO_INITIAL,
     CONF_TIMER_CHEMICALS,
     COORDINATOR_UPDATE_INTERVAL,
     DEFAULT_CHLORINE_MAX,
@@ -54,7 +76,12 @@ from .const import (
     DEFAULT_PH_MIN,
     DEFAULT_PH_TARGET,
     DEFAULT_POOL_VOLUME,
+    DEFAULT_TANK_HCL_INITIAL,
+    DEFAULT_TANK_NACLO_INITIAL,
     DOMAIN,
+    DOSING_INTERVAL_SECONDS,
+    EVENT_DOSING_SKIPPED,
+    EVENT_DOSING_STARTED,
     FC_ORP_BASE,
     FC_PH_FACTOR,
     FC_PH_REFERENCE,
@@ -64,14 +91,11 @@ from .const import (
     PRIORITY_OK,
     PRIORITY_PH_HIGH,
     PRIORITY_PH_LOW,
+    STORE_KEY,
+    STORE_VERSION,
     TOPIC_ADD_CHLORINE,
     TOPIC_ADD_PH,
-    TOPIC_CALC_CHLORINE,
-    TOPIC_CALC_PH,
-    TOPIC_EXPERIMENT_FC,
-    TOPIC_FC,
     TOPIC_ORP_PH,
-    TOPIC_PRIORITY,
     TOPIC_RECOMMENDED_PRIORITY,
 )
 
@@ -79,10 +103,9 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class PoolAutomationCoordinator(DataUpdateCoordinator):
-    """Manage pool automation state and MQTT communication."""
+    """Manage pool automation state, MQTT, dosing loop, and tank tracking."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize the coordinator."""
         super().__init__(
             hass,
             _LOGGER,
@@ -91,8 +114,9 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         )
         self.entry = entry
         self._subscriptions: list[Any] = []
+        self._store = Store(hass, STORE_VERSION, f"{STORE_KEY}_{entry.entry_id}")
 
-        # Live state
+        # Live sensor state
         self.ph: float | None = None
         self.orp: float | None = None
         self.temperature: float | None = None
@@ -102,6 +126,10 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         self.dose_ph_ml: float | None = None
         self.dose_chlorine_ml: float | None = None
         self.automation_enabled: bool = True
+
+        # Tank remaining volumes — loaded from storage in async_setup
+        self.hcl_remaining_ml: float | None = None
+        self.naclo_remaining_ml: float | None = None
 
     # ------------------------------------------------------------------
     # Config helpers
@@ -119,29 +147,18 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
     # Setup / teardown
     # ------------------------------------------------------------------
     async def async_setup(self) -> None:
-        """Subscribe to MQTT topics."""
-        subscribe = mqtt.async_subscribe
+        """Subscribe to MQTT, register dosing loop, and set up tank tracking."""
+        await self._load_tank_state()
 
+        subscribe = mqtt.async_subscribe
         self._subscriptions.append(
-            await subscribe(
-                self.hass,
-                self._topic(TOPIC_ORP_PH),
-                self._handle_orp_ph,
-            )
+            await subscribe(self.hass, self._topic(TOPIC_ORP_PH), self._handle_orp_ph)
         )
         self._subscriptions.append(
-            await subscribe(
-                self.hass,
-                self._topic(TOPIC_ADD_PH),
-                self._handle_add_ph,
-            )
+            await subscribe(self.hass, self._topic(TOPIC_ADD_PH), self._handle_add_ph)
         )
         self._subscriptions.append(
-            await subscribe(
-                self.hass,
-                self._topic(TOPIC_ADD_CHLORINE),
-                self._handle_add_chlorine,
-            )
+            await subscribe(self.hass, self._topic(TOPIC_ADD_CHLORINE), self._handle_add_chlorine)
         )
         self._subscriptions.append(
             await subscribe(
@@ -150,13 +167,88 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
                 self._handle_recommended_priority,
             )
         )
-        _LOGGER.info("Pool Automation: MQTT subscriptions active")
+
+        # Hourly dosing cycle (replaces pool_auto_dose_* YAML automations)
+        self._subscriptions.append(
+            async_track_time_interval(
+                self.hass,
+                self.async_run_dosing_cycle,
+                timedelta(seconds=DOSING_INTERVAL_SECONDS),
+            )
+        )
+
+        # Tank tracking — listen for pump on→off transitions
+        pump_ph = self.cfg.get(CONF_BINARY_PUMP_PH)
+        if pump_ph:
+            self._subscriptions.append(
+                async_track_state_change_event(
+                    self.hass, [pump_ph], self._handle_ph_pump_state
+                )
+            )
+
+        pump_cl = self.cfg.get(CONF_BINARY_PUMP_CHLORINE)
+        if pump_cl:
+            self._subscriptions.append(
+                async_track_state_change_event(
+                    self.hass, [pump_cl], self._handle_chlorine_pump_state
+                )
+            )
+
+        _LOGGER.info(
+            "Pool Automation v3: MQTT + dosing loop (%ds) + tank tracking active",
+            DOSING_INTERVAL_SECONDS,
+        )
 
     async def async_unload(self) -> None:
-        """Unsubscribe from MQTT."""
+        """Unsubscribe from MQTT and cancel all trackers."""
         for unsub in self._subscriptions:
             unsub()
         self._subscriptions.clear()
+
+    # ------------------------------------------------------------------
+    # Tank state persistence
+    # ------------------------------------------------------------------
+    async def _load_tank_state(self) -> None:
+        """Load tank remaining volumes from storage. Treats a changed initial
+        volume in config options as a tank refill."""
+        stored = await self._store.async_load() or {}
+        hcl_initial = self.cfg.get(CONF_TANK_HCL_INITIAL, DEFAULT_TANK_HCL_INITIAL)
+        naclo_initial = self.cfg.get(CONF_TANK_NACLO_INITIAL, DEFAULT_TANK_NACLO_INITIAL)
+
+        # If the configured initial volume changed since last save, treat as refill
+        if stored.get("hcl_initial") != hcl_initial:
+            self.hcl_remaining_ml = hcl_initial
+        else:
+            self.hcl_remaining_ml = stored.get("hcl_remaining_ml", hcl_initial)
+
+        if stored.get("naclo_initial") != naclo_initial:
+            self.naclo_remaining_ml = naclo_initial
+        else:
+            self.naclo_remaining_ml = stored.get("naclo_remaining_ml", naclo_initial)
+
+    async def _save_tank_state(self) -> None:
+        await self._store.async_save(
+            {
+                "hcl_remaining_ml": self.hcl_remaining_ml,
+                "naclo_remaining_ml": self.naclo_remaining_ml,
+                "hcl_initial": self.cfg.get(CONF_TANK_HCL_INITIAL, DEFAULT_TANK_HCL_INITIAL),
+                "naclo_initial": self.cfg.get(CONF_TANK_NACLO_INITIAL, DEFAULT_TANK_NACLO_INITIAL),
+            }
+        )
+
+    def reset_hcl_tank(self) -> None:
+        """Reset HCl remaining to the initial configured volume (called from button)."""
+        self.hcl_remaining_ml = self.cfg.get(CONF_TANK_HCL_INITIAL, DEFAULT_TANK_HCL_INITIAL)
+        self.hass.async_create_task(self._save_tank_state())
+        self.async_set_updated_data(self._build_data())
+        _LOGGER.info("HCl tank reset to %.0f mL", self.hcl_remaining_ml)
+
+    def reset_naclo_tank(self) -> None:
+        """Reset NaClO remaining to the initial configured volume (called from button)."""
+        self.naclo_remaining_ml = self.cfg.get(CONF_TANK_NACLO_INITIAL, DEFAULT_TANK_NACLO_INITIAL)
+        self.hass.async_create_task(self._save_tank_state())
+        self.async_set_updated_data(self._build_data())
+        _LOGGER.info("NaClO tank reset to %.0f mL", self.naclo_remaining_ml)
 
     # ------------------------------------------------------------------
     # MQTT inbound handlers
@@ -171,7 +263,6 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
                 return
             self.orp = float(orp_str.strip())
             self.ph = float(ph_str.strip())
-            self.free_chlorine = None  # will be set after ML estimate below
             self._update_fc_estimate()
             self._update_priority()
             self.async_set_updated_data(self._build_data())
@@ -200,7 +291,178 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         self.async_set_updated_data(self._build_data())
 
     # ------------------------------------------------------------------
-    # Chemistry calculations (pure Python – no external ML dep needed)
+    # Tank tracking – pump binary sensor state change handlers
+    # ------------------------------------------------------------------
+    @callback
+    def _handle_ph_pump_state(self, event: Event) -> None:
+        """Subtract actual dosed volume from HCl tank when pH pump finishes."""
+        old = event.data.get("old_state")
+        new = event.data.get("new_state")
+        if not (old and new and old.state == "on" and new.state == "off"):
+            return
+        dosed_entity = self.cfg.get(CONF_SENSOR_DOSED_PH)
+        if not dosed_entity or self.hcl_remaining_ml is None:
+            return
+        state = self.hass.states.get(dosed_entity)
+        try:
+            dosed = float(state.state)
+            self.hcl_remaining_ml = max(0.0, self.hcl_remaining_ml - dosed)
+            self.async_set_updated_data(self._build_data())
+            self.hass.async_create_task(self._save_tank_state())
+            _LOGGER.info("HCl: dosed %.1f mL → %.0f mL remaining", dosed, self.hcl_remaining_ml)
+        except (ValueError, AttributeError):
+            _LOGGER.warning("Could not read dosed pH volume from %s", dosed_entity)
+
+    @callback
+    def _handle_chlorine_pump_state(self, event: Event) -> None:
+        """Subtract actual dosed volume from NaClO tank when chlorine pump finishes."""
+        old = event.data.get("old_state")
+        new = event.data.get("new_state")
+        if not (old and new and old.state == "on" and new.state == "off"):
+            return
+        dosed_entity = self.cfg.get(CONF_SENSOR_DOSED_CHLORINE)
+        if not dosed_entity or self.naclo_remaining_ml is None:
+            return
+        state = self.hass.states.get(dosed_entity)
+        try:
+            dosed = float(state.state)
+            self.naclo_remaining_ml = max(0.0, self.naclo_remaining_ml - dosed)
+            self.async_set_updated_data(self._build_data())
+            self.hass.async_create_task(self._save_tank_state())
+            _LOGGER.info("NaClO: dosed %.1f mL → %.0f mL remaining", dosed, self.naclo_remaining_ml)
+        except (ValueError, AttributeError):
+            _LOGGER.warning("Could not read dosed chlorine volume from %s", dosed_entity)
+
+    # ------------------------------------------------------------------
+    # Safety check
+    # ------------------------------------------------------------------
+    def _safe_to_dose(self, check_timer: bool = True) -> tuple[bool, str]:
+        """Return (True, 'ok') if all safety conditions pass, else (False, reason).
+
+        Args:
+            check_timer: Set False for flocculant, which doesn't use the
+                         chemicals timer and shouldn't be blocked by it.
+        """
+        if not self.automation_enabled:
+            return False, "automation disabled"
+
+        # Circulation must be above minimum RPM
+        circ_entity = self.cfg.get(CONF_SENSOR_CIRCULATION)
+        min_rpm = self.cfg.get(CONF_MIN_CIRCULATION, DEFAULT_MIN_CIRCULATION)
+        if circ_entity:
+            state = self.hass.states.get(circ_entity)
+            try:
+                rpm = float(state.state) if state else 0.0
+            except (ValueError, AttributeError):
+                rpm = 0.0
+            if rpm < min_rpm:
+                return False, f"circulation {rpm:.0f} RPM < minimum {min_rpm}"
+
+        # Both dosing pumps must be idle before we trigger another dose
+        for entity_id in (
+            self.cfg.get(CONF_BINARY_PUMP_PH),
+            self.cfg.get(CONF_BINARY_PUMP_CHLORINE),
+        ):
+            if entity_id:
+                state = self.hass.states.get(entity_id)
+                if state and state.state == "on":
+                    return False, f"pump {entity_id} still running"
+
+        # Chemicals timer prevents double-dosing within one cycle window
+        if check_timer:
+            timer_entity = self.cfg.get(CONF_TIMER_CHEMICALS)
+            if timer_entity:
+                state = self.hass.states.get(timer_entity)
+                if state and state.state != "idle":
+                    return False, "chemicals timer not idle"
+
+        return True, "ok"
+
+    # ------------------------------------------------------------------
+    # Dosing cycle (replaces pool_auto_dose_* YAML automations)
+    # ------------------------------------------------------------------
+    async def async_run_dosing_cycle(self, now=None) -> None:
+        """Automated hourly dosing cycle.
+
+        Priority order:
+          1. pH correction (HCl) — highest priority; skips chlorine/floc.
+          2. Chlorine boost (NaClO) — only when pH is in range.
+          3. Flocculant — only when priority is OK and pH is in range.
+
+        Never doses two chemicals in the same cycle. Fires HA events so YAML
+        automations can send push notifications without touching this logic.
+        """
+        safe, reason = self._safe_to_dose()
+        if not safe:
+            _LOGGER.debug("Dosing cycle skipped: %s", reason)
+            self.hass.bus.async_fire(
+                EVENT_DOSING_SKIPPED,
+                {"reason": reason, "priority": self.priority},
+            )
+            return
+
+        if self.priority == PRIORITY_PH_HIGH:
+            ml = self.calculate_ph_dose_ml()
+            if ml and ml > 0:
+                await self.async_dose_ph()
+                await self._start_chemicals_timer()
+                self.hass.bus.async_fire(
+                    EVENT_DOSING_STARTED,
+                    {"type": "ph", "dose_ml": round(ml, 1), "ph": self.ph},
+                )
+                _LOGGER.info(
+                    "Auto cycle: pH dose %.1f mL (pH=%.2f)", ml, self.ph or 0
+                )
+
+        elif self.priority == PRIORITY_CHLORINE_LOW:
+            ml = self.calculate_chlorine_dose_ml()
+            if ml and ml > 0:
+                await self.async_dose_chlorine()
+                await self._start_chemicals_timer()
+                self.hass.bus.async_fire(
+                    EVENT_DOSING_STARTED,
+                    {
+                        "type": "chlorine",
+                        "dose_ml": round(ml, 1),
+                        "fc": self.experimental_fc,
+                    },
+                )
+                _LOGGER.info(
+                    "Auto cycle: chlorine dose %.1f mL (FC=%.2f ppm)",
+                    ml,
+                    self.experimental_fc or 0,
+                )
+
+        elif (
+            self.priority == PRIORITY_OK
+            and self.cfg.get(CONF_ENABLE_FLOC, DEFAULT_ENABLE_FLOC)
+        ):
+            ph_min = self.cfg.get(CONF_PH_MIN, DEFAULT_PH_MIN)
+            ph_max = self.cfg.get(CONF_PH_MAX, DEFAULT_PH_MAX)
+            if self.ph is not None and ph_min <= self.ph <= ph_max:
+                # Flocculant skips the chemicals timer check
+                safe_floc, reason_floc = self._safe_to_dose(check_timer=False)
+                if safe_floc:
+                    await self.async_dose_floc()
+                    self.hass.bus.async_fire(
+                        EVENT_DOSING_STARTED, {"type": "floc"}
+                    )
+                    _LOGGER.info(
+                        "Auto cycle: flocculant dose (pH=%.2f)", self.ph
+                    )
+                else:
+                    _LOGGER.debug("Floc skipped: %s", reason_floc)
+
+    async def _start_chemicals_timer(self) -> None:
+        """Start the chemicals timer to block double-dosing within the same window."""
+        timer_entity = self.cfg.get(CONF_TIMER_CHEMICALS)
+        if timer_entity:
+            await self.hass.services.async_call(
+                "timer", "start", {"entity_id": timer_entity}, blocking=True
+            )
+
+    # ------------------------------------------------------------------
+    # Chemistry calculations (pure Python, unit-testable)
     # ------------------------------------------------------------------
     def _update_fc_estimate(self) -> None:
         """Estimate free chlorine from ORP and pH using calibrated formula."""
@@ -214,7 +476,7 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             _LOGGER.error("FC estimation error: %s", err)
 
     def _update_priority(self) -> None:
-        """Determine dosing priority based on current pH and FC."""
+        """Determine dosing priority from current pH and estimated FC."""
         if self.ph is None or self.experimental_fc is None:
             return
 
@@ -227,13 +489,10 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             self.priority = PRIORITY_PH_LOW
         elif self.ph > ph_max:
             self.priority = PRIORITY_PH_HIGH
-        elif ph_min <= self.ph <= ph_max:
-            if self.experimental_fc < cl_min:
-                self.priority = PRIORITY_CHLORINE_LOW
-            elif self.experimental_fc > cl_max:
-                self.priority = PRIORITY_CHLORINE_HIGH
-            else:
-                self.priority = PRIORITY_OK
+        elif self.experimental_fc < cl_min:
+            self.priority = PRIORITY_CHLORINE_LOW
+        elif self.experimental_fc > cl_max:
+            self.priority = PRIORITY_CHLORINE_HIGH
         else:
             self.priority = PRIORITY_OK
 
@@ -266,11 +525,15 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             return 0.0
         pool_liters = volume_m3 * 1000
         strength_factor = strength / 100.0
-        grams = (pool_liters / 10000) * (CHLORINE_GRAMS_PER_10K_L_PER_PPM / strength_factor) * ppm_diff
+        grams = (
+            (pool_liters / 10000)
+            * (CHLORINE_GRAMS_PER_10K_L_PER_PPM / strength_factor)
+            * ppm_diff
+        )
         return round(grams / CHLORINE_LIQUID_DENSITY, 2)
 
     # ------------------------------------------------------------------
-    # Actions triggered from HA (buttons / services)
+    # Manual dose actions (also called by buttons and by dosing cycle)
     # ------------------------------------------------------------------
     async def async_dose_ph(self) -> None:
         """Trigger a pH-down dose via ESPHome."""
@@ -278,24 +541,18 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         if ml is None or ml <= 0:
             _LOGGER.warning("No pH dose needed or sensors unavailable.")
             return
-
         number_entity = self.cfg.get(CONF_NUMBER_VOLUME_PH)
         button_entity = self.cfg.get(CONF_BUTTON_DOSE_PH)
-
         if number_entity:
             await self.hass.services.async_call(
                 "number", "set_value",
                 {"entity_id": number_entity, "value": ml},
                 blocking=True,
             )
-
         if button_entity:
             await self.hass.services.async_call(
-                "button", "press",
-                {"entity_id": button_entity},
-                blocking=True,
+                "button", "press", {"entity_id": button_entity}, blocking=True
             )
-
         _LOGGER.info("pH dose triggered: %.2f mL", ml)
 
     async def async_dose_chlorine(self) -> None:
@@ -304,67 +561,42 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         if ml is None or ml <= 0:
             _LOGGER.warning("No chlorine dose needed or sensors unavailable.")
             return
-
         number_entity = self.cfg.get(CONF_NUMBER_VOLUME_CHLORINE)
         button_entity = self.cfg.get(CONF_BUTTON_DOSE_CHLORINE)
-
         if number_entity:
             await self.hass.services.async_call(
                 "number", "set_value",
                 {"entity_id": number_entity, "value": ml},
                 blocking=True,
             )
-
         if button_entity:
             await self.hass.services.async_call(
-                "button", "press",
-                {"entity_id": button_entity},
-                blocking=True,
+                "button", "press", {"entity_id": button_entity}, blocking=True
             )
-
         _LOGGER.info("Chlorine dose triggered: %.2f mL", ml)
 
     async def async_dose_floc(self) -> None:
         """Trigger a flocculant dose via ESPHome."""
         if not self.cfg.get(CONF_ENABLE_FLOC, DEFAULT_ENABLE_FLOC):
             return
-
         vol = self.cfg.get(CONF_FLOC_VOLUME, DEFAULT_FLOC_VOLUME)
         dur = self.cfg.get(CONF_FLOC_DURATION, DEFAULT_FLOC_DURATION)
         num_vol = self.cfg.get(CONF_NUMBER_VOLUME_FLOC)
         num_dur = self.cfg.get(CONF_NUMBER_DURATION_FLOC)
         btn = self.cfg.get(CONF_BUTTON_DOSE_FLOC)
-
         if num_vol:
             await self.hass.services.async_call(
-                "number", "set_value",
-                {"entity_id": num_vol, "value": vol},
-                blocking=True,
+                "number", "set_value", {"entity_id": num_vol, "value": vol}, blocking=True
             )
         if num_dur:
             await self.hass.services.async_call(
-                "number", "set_value",
-                {"entity_id": num_dur, "value": dur},
-                blocking=True,
+                "number", "set_value", {"entity_id": num_dur, "value": dur}, blocking=True
             )
         if btn:
             await self.hass.services.async_call(
-                "button", "press",
-                {"entity_id": btn},
-                blocking=True,
+                "button", "press", {"entity_id": btn}, blocking=True
             )
         _LOGGER.info("Flocculant dose triggered: %.1f mL for %ds", vol, dur)
-
-    async def async_publish_orp_ph(self) -> None:
-        """Publish current ORP and pH to MQTT (for external consumers)."""
-        if self.orp is None or self.ph is None:
-            return
-        payload = f"{self.orp},{self.ph}"
-        await mqtt.async_publish(
-            self.hass,
-            self._topic(TOPIC_ORP_PH),
-            payload,
-        )
 
     # ------------------------------------------------------------------
     # Data snapshot
@@ -380,10 +612,12 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             "dose_ph_ml": self.dose_ph_ml,
             "dose_chlorine_ml": self.dose_chlorine_ml,
             "automation_enabled": self.automation_enabled,
+            "hcl_remaining_ml": self.hcl_remaining_ml,
+            "naclo_remaining_ml": self.naclo_remaining_ml,
         }
 
     async def _async_update_data(self) -> dict:
-        """Periodic update – recalculate from latest sensor values."""
+        """Periodic update – refresh sensor readings from HA state machine."""
         ph_entity = self.cfg.get(CONF_SENSOR_PH)
         orp_entity = self.cfg.get(CONF_SENSOR_ORP)
         temp_entity = self.cfg.get(CONF_SENSOR_TEMP)

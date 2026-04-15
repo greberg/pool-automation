@@ -23,6 +23,8 @@ async def async_setup_entry(
             PoolDosePhButton(coordinator, entry),
             PoolDoseChlorineButton(coordinator, entry),
             PoolDoseFlocButton(coordinator, entry),
+            PoolResetHclTankButton(coordinator, entry),
+            PoolResetNacloTankButton(coordinator, entry),
         ]
     )
 
@@ -70,3 +72,27 @@ class PoolDoseFlocButton(_PoolButtonBase):
 
     async def async_press(self) -> None:
         await self.coordinator.async_dose_floc()
+
+
+class PoolResetHclTankButton(_PoolButtonBase):
+    """Button to reset HCl tank remaining to the configured initial volume."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(
+            coordinator, entry, "reset_hcl_tank", "Pool: Reset HCl Tank", "mdi:flask-plus"
+        )
+
+    async def async_press(self) -> None:
+        self.coordinator.reset_hcl_tank()
+
+
+class PoolResetNacloTankButton(_PoolButtonBase):
+    """Button to reset NaClO tank remaining to the configured initial volume."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(
+            coordinator, entry, "reset_naclo_tank", "Pool: Reset NaClO Tank", "mdi:cup-water"
+        )
+
+    async def async_press(self) -> None:
+        self.coordinator.reset_naclo_tank()

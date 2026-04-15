@@ -1,151 +1,55 @@
 # =============================================================================
-#  Pool Automation – Home Assistant Automations
-#  These replace the manual automations in pool.yaml.
-#  The heavy logic now lives in the custom component; these automations
-#  handle scheduling, safety checks, and notifications.
+#  Pool Automation – Home Assistant Automations  (v3)
+#
+#  What changed in v3
+#  ------------------
+#  The dosing loop (pH, chlorine, flocculant) and tank-volume tracking now
+#  live inside the custom component.  These YAML automations are gone:
+#    ✗ pool_auto_dose_ph
+#    ✗ pool_auto_dose_chlorine
+#    ✗ pool_auto_dose_floc
+#    ✗ pool_init_hcl_volume / pool_update_hcl_after_dose
+#    ✗ pool_init_naclo_volume / pool_update_naclo_after_dose
+#
+#  What stays here: anything that talks to services the component doesn't own —
+#  push notifications (your iPhone), Google Sheets, scenes, FC model training.
+#  The component fires  pool_automation_dosing_started  events so the
+#  notification automations below can stay completely decoupled from the logic.
 # =============================================================================
 
+
 # ---------------------------------------------------------------------------
-# pH MANAGEMENT  – runs every hour, doses if priority = ph and conditions met
+# NOTIFICATIONS – dosing events fired by the component
 # ---------------------------------------------------------------------------
-- id: pool_auto_dose_ph
-  alias: "Pool Auto Dose pH"
-  description: "Automatically dose HCl when pH is high and conditions are met"
+- id: pool_notify_dose_started_ph
+  alias: "Pool: Notify pH dosing started"
   trigger:
-    - platform: time_pattern
-      hours: "/1"
-  condition:
-    - condition: state
-      entity_id: sensor.pool_management_priority   # from the component
-      state: "ph"
-    - condition: state
-      entity_id: switch.pool_automation_mode       # component switch
-      state: "on"
-    - condition: state
-      entity_id: binary_sensor.pool_kit_pump_state_ph_down
-      state: "off"
-    - condition: state
-      entity_id: binary_sensor.pool_kit_pump_state_orp
-      state: "off"
-    - condition: numeric_state
-      entity_id: sensor.cirkulation_rpm
-      above: 1000
-    - condition: state
-      entity_id: timer.chemicals_dosed
-      state: "idle"
+    - platform: event
+      event_type: pool_automation_dosing_started
+      event_data:
+        type: ph
   action:
-    - service: button.press
-      target:
-        entity_id: button.pool_dose_ph_down         # component button
-    - service: timer.start
-      entity_id: timer.chemicals_dosed
     - service: notify.mobile_app_peter_iphone
       data:
         message: >
-          pH-dosering startad. Dos: {{ states('sensor.pool_ph_dose') }} mL
-          (pH nu: {{ states('sensor.pool_kit_ezo_ph_level') }})
+          pH-dosering startad.
+          Dos: {{ trigger.event.data.dose_ml }} mL
+          (pH nu: {{ trigger.event.data.ph | round(2) }})
 
-# ---------------------------------------------------------------------------
-# CHLORINE MANAGEMENT – runs every hour
-# ---------------------------------------------------------------------------
-- id: pool_auto_dose_chlorine
-  alias: "Pool Auto Dose Chlorine"
-  description: "Automatically dose NaClO when free chlorine is low and conditions are met"
+- id: pool_notify_dose_started_chlorine
+  alias: "Pool: Notify chlorine dosing started"
   trigger:
-    - platform: time_pattern
-      hours: "/1"
-  condition:
-    - condition: state
-      entity_id: sensor.pool_management_priority
-      state: "chlorine"
-    - condition: state
-      entity_id: switch.pool_automation_mode
-      state: "on"
-    - condition: state
-      entity_id: binary_sensor.pool_kit_pump_state_ph_down
-      state: "off"
-    - condition: state
-      entity_id: binary_sensor.pool_kit_pump_state_orp
-      state: "off"
-    - condition: numeric_state
-      entity_id: sensor.cirkulation_rpm
-      above: 1000
-    - condition: state
-      entity_id: timer.chemicals_dosed
-      state: "idle"
+    - platform: event
+      event_type: pool_automation_dosing_started
+      event_data:
+        type: chlorine
   action:
-    - service: button.press
-      target:
-        entity_id: button.pool_dose_chlorine
-    - service: timer.start
-      entity_id: timer.chemicals_dosed
     - service: notify.mobile_app_peter_iphone
       data:
         message: >
-          Klorering startad. Dos: {{ states('sensor.pool_chlorine_dose') }} mL
-          (FC nu: {{ states('sensor.pool_free_chlorine_fc') }} ppm)
-
-# ---------------------------------------------------------------------------
-# FLOCCULANT – runs every hour when pH is in range and circulation is running
-# ---------------------------------------------------------------------------
-- id: pool_auto_dose_floc
-  alias: "Pool Auto Dose Flocculant"
-  description: "Dose flocculant hourly when pH in range and pump running"
-  trigger:
-    - platform: time_pattern
-      hours: "/1"
-  condition:
-    - condition: state
-      entity_id: switch.pool_automation_mode
-      state: "on"
-    - condition: numeric_state
-      entity_id: sensor.cirkulation_rpm
-      above: 1000
-    - condition: numeric_state
-      entity_id: sensor.pool_kit_ezo_ph_level
-      above: 7.2
-    - condition: numeric_state
-      entity_id: sensor.pool_kit_ezo_ph_level
-      below: 7.7
-  action:
-    - service: button.press
-      target:
-        entity_id: button.pool_dose_flocculant
-
-# ---------------------------------------------------------------------------
-# SEASON – open / close pool
-# ---------------------------------------------------------------------------
-- id: pool_open_summer
-  alias: "Pool Open for Summer"
-  trigger:
-    - platform: state
-      entity_id: input_boolean.pool_open
-      to: "on"
-  action:
-    - service: scene.turn_on
-      entity_id: scene.summer_open_pool
-    - service: switch.turn_on
-      target:
-        entity_id: switch.pool_automation_mode
-    - service: notify.mobile_app_peter_iphone
-      data:
-        message: "Pool öppen för sommaren! 🏊"
-
-- id: pool_close_winter
-  alias: "Pool Closed for Winter"
-  trigger:
-    - platform: state
-      entity_id: input_boolean.pool_open
-      to: "off"
-  action:
-    - service: scene.turn_on
-      entity_id: scene.winter_close_pool
-    - service: switch.turn_off
-      target:
-        entity_id: switch.pool_automation_mode
-    - service: notify.mobile_app_peter_iphone
-      data:
-        message: "Pool stängd för vinter ❄️"
+          Klorering startad.
+          Dos: {{ trigger.event.data.dose_ml }} mL
+          (FC nu: {{ trigger.event.data.fc | round(2) }} ppm)
 
 # ---------------------------------------------------------------------------
 # NOTIFICATIONS – out-of-range alerts
@@ -219,6 +123,41 @@
           FC: {{ states('sensor.pool_free_chlorine_fc') }} ppm
 
 # ---------------------------------------------------------------------------
+# SEASON – open / close pool
+# ---------------------------------------------------------------------------
+- id: pool_open_summer
+  alias: "Pool Open for Summer"
+  trigger:
+    - platform: state
+      entity_id: input_boolean.pool_open
+      to: "on"
+  action:
+    - service: scene.turn_on
+      entity_id: scene.summer_open_pool
+    - service: switch.turn_on
+      target:
+        entity_id: switch.pool_automation_mode
+    - service: notify.mobile_app_peter_iphone
+      data:
+        message: "Pool öppen för sommaren! 🏊"
+
+- id: pool_close_winter
+  alias: "Pool Closed for Winter"
+  trigger:
+    - platform: state
+      entity_id: input_boolean.pool_open
+      to: "off"
+  action:
+    - service: scene.turn_on
+      entity_id: scene.winter_close_pool
+    - service: switch.turn_off
+      target:
+        entity_id: switch.pool_automation_mode
+    - service: notify.mobile_app_peter_iphone
+      data:
+        message: "Pool stängd för vinter ❄️"
+
+# ---------------------------------------------------------------------------
 # DATA LOGGING – to Google Sheets every 30 min
 # ---------------------------------------------------------------------------
 - id: pool_log_to_sheets
@@ -237,6 +176,8 @@
           volume_m3: "{{ states('number.pool_volume') }}"
           water_temp: "{{ states('sensor.pool_temperature') }}"
           priority: "{{ states('sensor.pool_management_priority') }}"
+          hcl_remaining_ml: "{{ states('sensor.pool_hcl_tank_remaining') }}"
+          naclo_remaining_ml: "{{ states('sensor.pool_naclo_tank_remaining') }}"
 
 # ---------------------------------------------------------------------------
 # TRAIN FC MODEL – when lab measurement is updated
@@ -253,66 +194,3 @@
         topic: "chlorine_model/train"
         payload: >
           {{ states('sensor.pool_kit_ezo_orp_level') }},{{ states('sensor.pool_kit_ezo_ph_level') }},{{ states('sensor.pool_temperature') }},{{ states('input_number.lab_fc') }}
-
-# ---------------------------------------------------------------------------
-# CHEMICAL TANK – track remaining volumes
-# ---------------------------------------------------------------------------
-- id: pool_init_hcl_volume
-  alias: "Pool: Initialize HCl Volume"
-  trigger:
-    - platform: state
-      entity_id: input_number.volume_hcl
-  action:
-    - service: input_number.set_value
-      target:
-        entity_id: input_number.remaining_hcl_volume
-      data:
-        value: "{{ states('input_number.volume_hcl') | float }}"
-
-- id: pool_update_hcl_after_dose
-  alias: "Pool: Update HCl remaining after dosing"
-  trigger:
-    - platform: state
-      entity_id: binary_sensor.pool_kit_pump_state_ph_down
-      from: "on"
-      to: "off"
-  action:
-    - delay:
-        seconds: 5
-    - service: input_number.set_value
-      target:
-        entity_id: input_number.remaining_hcl_volume
-      data:
-        value: >
-          {{ (states('input_number.remaining_hcl_volume') | float) -
-             (states('sensor.pool_kit_current_volume_dosed_ph_down') | float) }}
-
-- id: pool_init_naclo_volume
-  alias: "Pool: Initialize NaClO Volume"
-  trigger:
-    - platform: state
-      entity_id: input_number.volume_naclo
-  action:
-    - service: input_number.set_value
-      target:
-        entity_id: input_number.remaining_naclo_volume
-      data:
-        value: "{{ states('input_number.volume_naclo') | float }}"
-
-- id: pool_update_naclo_after_dose
-  alias: "Pool: Update NaClO remaining after dosing"
-  trigger:
-    - platform: state
-      entity_id: binary_sensor.pool_kit_pump_state_orp
-      from: "on"
-      to: "off"
-  action:
-    - delay:
-        seconds: 5
-    - service: input_number.set_value
-      target:
-        entity_id: input_number.remaining_naclo_volume
-      data:
-        value: >
-          {{ (states('input_number.remaining_naclo_volume') | float) -
-             (states('sensor.pool_kit_current_volume_dosed_orp') | float) }}

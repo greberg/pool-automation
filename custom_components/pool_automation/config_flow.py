@@ -7,6 +7,8 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
+    CONF_BINARY_PUMP_CHLORINE,
+    CONF_BINARY_PUMP_PH,
     CONF_BUTTON_DOSE_CHLORINE,
     CONF_BUTTON_DOSE_FLOC,
     CONF_BUTTON_DOSE_PH,
@@ -29,9 +31,13 @@ from .const import (
     CONF_PH_TARGET,
     CONF_POOL_VOLUME,
     CONF_SENSOR_CIRCULATION,
+    CONF_SENSOR_DOSED_CHLORINE,
+    CONF_SENSOR_DOSED_PH,
     CONF_SENSOR_ORP,
     CONF_SENSOR_PH,
     CONF_SENSOR_TEMP,
+    CONF_TANK_HCL_INITIAL,
+    CONF_TANK_NACLO_INITIAL,
     CONF_TIMER_CHEMICALS,
     DEFAULT_CHLORINE_MAX,
     DEFAULT_CHLORINE_MIN,
@@ -47,6 +53,8 @@ from .const import (
     DEFAULT_PH_MIN,
     DEFAULT_PH_TARGET,
     DEFAULT_POOL_VOLUME,
+    DEFAULT_TANK_HCL_INITIAL,
+    DEFAULT_TANK_NACLO_INITIAL,
     DOMAIN,
 )
 
@@ -67,6 +75,24 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_SENSOR_ORP, default="sensor.pool_kit_ezo_orp_level"): str,
         vol.Optional(CONF_SENSOR_TEMP, default="sensor.pool_temperature"): str,
         vol.Optional(CONF_SENSOR_CIRCULATION, default="sensor.cirkulation_rpm"): str,
+        # v3: pump binary sensors for safety checks and tank tracking
+        vol.Optional(
+            CONF_BINARY_PUMP_PH,
+            default="binary_sensor.pool_kit_pump_state_ph_down",
+        ): str,
+        vol.Optional(
+            CONF_BINARY_PUMP_CHLORINE,
+            default="binary_sensor.pool_kit_pump_state_orp",
+        ): str,
+        # v3: sensors reporting actual volume dosed each cycle (for tank tracking)
+        vol.Optional(
+            CONF_SENSOR_DOSED_PH,
+            default="sensor.pool_kit_current_volume_dosed_ph_down",
+        ): str,
+        vol.Optional(
+            CONF_SENSOR_DOSED_CHLORINE,
+            default="sensor.pool_kit_current_volume_dosed_orp",
+        ): str,
         vol.Optional(CONF_BUTTON_DOSE_PH, default="button.pool_kit_dose_ph_down"): str,
         vol.Optional(CONF_BUTTON_DOSE_CHLORINE, default="button.pool_kit_dose_orp"): str,
         vol.Optional(CONF_BUTTON_DOSE_FLOC, default="button.pool_kit_dose_floc_time_duration"): str,
@@ -79,6 +105,13 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_FLOC_VOLUME, default=DEFAULT_FLOC_VOLUME): vol.Coerce(float),
         vol.Optional(CONF_FLOC_DURATION, default=DEFAULT_FLOC_DURATION): vol.Coerce(int),
         vol.Optional(CONF_MIN_CIRCULATION, default=DEFAULT_MIN_CIRCULATION): vol.Coerce(int),
+        # v3: initial tank volumes — change here to trigger a refill reset
+        vol.Optional(
+            CONF_TANK_HCL_INITIAL, default=DEFAULT_TANK_HCL_INITIAL
+        ): vol.Coerce(float),
+        vol.Optional(
+            CONF_TANK_NACLO_INITIAL, default=DEFAULT_TANK_NACLO_INITIAL
+        ): vol.Coerce(float),
     }
 )
 
@@ -97,6 +130,13 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_FLOC_VOLUME, default=DEFAULT_FLOC_VOLUME): vol.Coerce(float),
         vol.Optional(CONF_FLOC_DURATION, default=DEFAULT_FLOC_DURATION): vol.Coerce(int),
         vol.Optional(CONF_MIN_CIRCULATION, default=DEFAULT_MIN_CIRCULATION): vol.Coerce(int),
+        # v3: update tank initial volumes here when you refill the tanks
+        vol.Optional(
+            CONF_TANK_HCL_INITIAL, default=DEFAULT_TANK_HCL_INITIAL
+        ): vol.Coerce(float),
+        vol.Optional(
+            CONF_TANK_NACLO_INITIAL, default=DEFAULT_TANK_NACLO_INITIAL
+        ): vol.Coerce(float),
     }
 )
 
@@ -160,6 +200,15 @@ class PoolAutomationOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(CONF_FLOC_VOLUME, default=cfg.get(CONF_FLOC_VOLUME, DEFAULT_FLOC_VOLUME)): vol.Coerce(float),
                 vol.Optional(CONF_FLOC_DURATION, default=cfg.get(CONF_FLOC_DURATION, DEFAULT_FLOC_DURATION)): vol.Coerce(int),
                 vol.Optional(CONF_MIN_CIRCULATION, default=cfg.get(CONF_MIN_CIRCULATION, DEFAULT_MIN_CIRCULATION)): vol.Coerce(int),
+                # v3 tank volumes — change to reset remaining after a refill
+                vol.Optional(
+                    CONF_TANK_HCL_INITIAL,
+                    default=cfg.get(CONF_TANK_HCL_INITIAL, DEFAULT_TANK_HCL_INITIAL),
+                ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_TANK_NACLO_INITIAL,
+                    default=cfg.get(CONF_TANK_NACLO_INITIAL, DEFAULT_TANK_NACLO_INITIAL),
+                ): vol.Coerce(float),
             }
         )
 

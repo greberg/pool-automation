@@ -30,6 +30,8 @@ async def async_setup_entry(
             PoolPrioritySensor(coordinator, entry),
             PoolDosePhSensor(coordinator, entry),
             PoolDoseChlorineSensor(coordinator, entry),
+            PoolHclRemainingSensor(coordinator, entry),
+            PoolNacloRemainingSensor(coordinator, entry),
         ]
     )
 
@@ -138,3 +140,33 @@ class PoolDoseChlorineSensor(PoolSensorBase):
     @property
     def native_value(self):
         return self.coordinator.calculate_chlorine_dose_ml()
+
+
+class PoolHclRemainingSensor(PoolSensorBase):
+    """Sensor for remaining HCl (pH-down) tank volume."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "hcl_remaining_ml", "Pool HCl Tank Remaining")
+        self._attr_native_unit_of_measurement = "mL"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:flask-minus"
+
+    @property
+    def native_value(self):
+        val = self._data.get("hcl_remaining_ml")
+        return round(val, 0) if val is not None else None
+
+
+class PoolNacloRemainingSensor(PoolSensorBase):
+    """Sensor for remaining NaClO (liquid chlorine) tank volume."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "naclo_remaining_ml", "Pool NaClO Tank Remaining")
+        self._attr_native_unit_of_measurement = "mL"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:cup-water"
+
+    @property
+    def native_value(self):
+        val = self._data.get("naclo_remaining_ml")
+        return round(val, 0) if val is not None else None
