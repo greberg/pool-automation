@@ -1,7 +1,7 @@
 # Pool Automation – Home Assistant Custom Component
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![Validate HACS](https://github.com/YOUR_GITHUB_USERNAME/pool-automation/actions/workflows/validate.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/pool-automation/actions/workflows/validate.yml)
+[![Validate HACS](https://github.com/greberg/pool-automation/actions/workflows/validate.yml/badge.svg)](https://github.com/greberg/pool-automation/actions/workflows/validate.yml)
 
 A Home Assistant custom component for fully automated pool chemical management — pH (HCl) and chlorine (NaClO) dosing — built for the **ESPHome Pool Lab Kit**. Replaces the stand-alone Python MQTT app and manual YAML automations with a clean, native HA integration.
 
@@ -47,7 +47,7 @@ A Home Assistant custom component for fully automated pool chemical management �
 ## Installation via HACS
 
 1. Open HACS → **Integrations** → ⋮ → **Custom repositories**
-2. Add `https://github.com/YOUR_GITHUB_USERNAME/pool-automation` as category **Integration**
+2. Add `https://github.com/greberg/pool-automation` as category **Integration**
 3. Find **Pool Automation** in the HACS list and click **Download**
 4. Restart Home Assistant
 5. Go to **Settings → Devices & Services → Add Integration** → search **Pool Automation**
