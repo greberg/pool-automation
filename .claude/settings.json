@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/peter.greberg/Documents/pool-monitor/.claude/bump_version.sh",
+            "if": "Bash(git push *)",
+            "statusMessage": "Bumping version...",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
