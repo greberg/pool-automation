@@ -4,8 +4,8 @@
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 
-# Only act on pushes that target main
-echo "$CMD" | grep -qE 'push.*((:| )main|HEAD:main)' || exit 0
+# Only act on actual push commands
+echo "$CMD" | grep -q 'push' || exit 0
 
 # Avoid infinite loop: skip if the last commit is already a version bump
 REPO="/Users/peter.greberg/Documents/pool-monitor"
