@@ -446,8 +446,7 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         try:
             ph_offset = FC_ORP_BASE + FC_PH_FACTOR * (self.ph - FC_PH_REFERENCE)
             exponent = (self.orp - ph_offset) / FC_SLOPE
-            result = round(10**exponent, 3)
-            self.experimental_fc = result if result > 0 else None
+            self.experimental_fc = round(10**exponent, 3)
         except Exception as err:
             _LOGGER.error("FC estimation error: %s", err)
 
