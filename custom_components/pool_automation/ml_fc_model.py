@@ -36,8 +36,11 @@ class FCModel:
         self._d3_k = w["d3"]["kernel"]
         self._d3_b = w["d3"]["bias"]
 
-        self._norm_out_mean = w["norm_out"]["mean"][0]
-        self._norm_out_std = math.sqrt(w["norm_out"]["var"][0] + 1e-3)
+        out_mean = w["norm_out"]["mean"]
+        out_var = w["norm_out"]["var"]
+        self._norm_out_mean = out_mean[0] if isinstance(out_mean, list) else out_mean
+        out_var_val = out_var[0] if isinstance(out_var, list) else out_var
+        self._norm_out_std = math.sqrt(out_var_val + 1e-3)
 
     def predict(self, orp: float, ph: float) -> float:
         x = [(orp - self._norm_in_mean[0]) / self._norm_in_std[0],
