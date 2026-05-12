@@ -19,6 +19,7 @@ from .const import (
     CONF_FLOC_DURATION,
     CONF_FLOC_VOLUME,
     CONF_HCL_CONCENTRATION,
+    CONF_BINARY_PUMP_FLOC,
     CONF_MIN_CIRCULATION,
     CONF_NACLO_CONCENTRATION,
     CONF_NUMBER_DURATION_FLOC,
@@ -35,6 +36,7 @@ from .const import (
     CONF_SENSOR_ORP,
     CONF_SENSOR_PH,
     CONF_SENSOR_TEMP,
+    CONF_TANK_FLOC_INITIAL,
     CONF_TANK_HCL_INITIAL,
     CONF_TANK_NACLO_INITIAL,
     CONF_TIMER_CHEMICALS,
@@ -52,6 +54,7 @@ from .const import (
     DEFAULT_PH_MIN,
     DEFAULT_PH_TARGET,
     DEFAULT_POOL_VOLUME,
+    DEFAULT_TANK_FLOC_INITIAL,
     DEFAULT_TANK_HCL_INITIAL,
     DEFAULT_TANK_NACLO_INITIAL,
     DOMAIN,
@@ -82,6 +85,10 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
             CONF_BINARY_PUMP_CHLORINE,
             default="binary_sensor.pool_kit_pump_state_orp",
         ): str,
+        vol.Optional(
+            CONF_BINARY_PUMP_FLOC,
+            default="binary_sensor.pool_kit_pump_state_floc",
+        ): str,
         # v3: sensors reporting actual volume dosed each cycle (for tank tracking)
         vol.Optional(
             CONF_SENSOR_DOSED_PH,
@@ -110,6 +117,9 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_TANK_NACLO_INITIAL, default=DEFAULT_TANK_NACLO_INITIAL
         ): vol.Coerce(float),
+        vol.Optional(
+            CONF_TANK_FLOC_INITIAL, default=DEFAULT_TANK_FLOC_INITIAL
+        ): vol.Coerce(float),
     }
 )
 
@@ -134,6 +144,9 @@ OPTIONS_SCHEMA = vol.Schema(
         ): vol.Coerce(float),
         vol.Optional(
             CONF_TANK_NACLO_INITIAL, default=DEFAULT_TANK_NACLO_INITIAL
+        ): vol.Coerce(float),
+        vol.Optional(
+            CONF_TANK_FLOC_INITIAL, default=DEFAULT_TANK_FLOC_INITIAL
         ): vol.Coerce(float),
     }
 )

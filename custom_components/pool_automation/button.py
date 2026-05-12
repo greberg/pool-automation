@@ -25,6 +25,7 @@ async def async_setup_entry(
             PoolDoseFlocButton(coordinator, entry),
             PoolResetHclTankButton(coordinator, entry),
             PoolResetNacloTankButton(coordinator, entry),
+            PoolResetFlocTankButton(coordinator, entry),
         ]
     )
 
@@ -96,3 +97,15 @@ class PoolResetNacloTankButton(_PoolButtonBase):
 
     async def async_press(self) -> None:
         self.coordinator.reset_naclo_tank()
+
+
+class PoolResetFlocTankButton(_PoolButtonBase):
+    """Button to reset flocculant tank remaining to the configured initial volume."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(
+            coordinator, entry, "reset_floc_tank", "Pool: Reset Flocculant Tank", "mdi:water-opacity"
+        )
+
+    async def async_press(self) -> None:
+        self.coordinator.reset_floc_tank()

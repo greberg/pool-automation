@@ -30,6 +30,7 @@ from .const import (
     CHLORINE_GRAMS_PER_10K_L_PER_PPM,
     CHLORINE_LIQUID_DENSITY,
     CONF_BINARY_PUMP_CHLORINE,
+    CONF_BINARY_PUMP_FLOC,
     CONF_BINARY_PUMP_PH,
     CONF_BUTTON_DOSE_CHLORINE,
     CONF_BUTTON_DOSE_FLOC,
@@ -57,6 +58,7 @@ from .const import (
     CONF_SENSOR_ORP,
     CONF_SENSOR_PH,
     CONF_SENSOR_TEMP,
+    CONF_TANK_FLOC_INITIAL,
     CONF_TANK_HCL_INITIAL,
     CONF_TANK_NACLO_INITIAL,
     CONF_TIMER_CHEMICALS,
@@ -74,6 +76,7 @@ from .const import (
     DEFAULT_PH_MIN,
     DEFAULT_PH_TARGET,
     DEFAULT_POOL_VOLUME,
+    DEFAULT_TANK_FLOC_INITIAL,
     DEFAULT_TANK_HCL_INITIAL,
     DEFAULT_TANK_NACLO_INITIAL,
     DOMAIN,
@@ -124,6 +127,7 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         # Tank remaining volumes — loaded from storage in async_setup
         self.hcl_remaining_ml: float | None = None
         self.naclo_remaining_ml: float | None = None
+        self.floc_remaining_ml: float | None = None
 
     # ------------------------------------------------------------------
     # Config helpers
@@ -166,6 +170,14 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
                 )
             )
 
+        pump_floc = self.cfg.get(CONF_BINARY_PUMP_FLOC)
+        if pump_floc:
+            self._subscriptions.append(
+                async_track_state_change_event(
+                    self.hass, [pump_floc], self._handle_floc_pump_state
+                )
+            )
+
         _LOGGER.info(
             "Pool Automation v3: dosing loop (%ds) + tank tracking active",
             DOSING_INTERVAL_SECONDS,
@@ -198,13 +210,21 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         else:
             self.naclo_remaining_ml = stored.get("naclo_remaining_ml", naclo_initial)
 
+        floc_initial = self.cfg.get(CONF_TANK_FLOC_INITIAL, DEFAULT_TANK_FLOC_INITIAL)
+        if stored.get("floc_initial") != floc_initial:
+            self.floc_remaining_ml = floc_initial
+        else:
+            self.floc_remaining_ml = stored.get("floc_remaining_ml", floc_initial)
+
     async def _save_tank_state(self) -> None:
         await self._store.async_save(
             {
                 "hcl_remaining_ml": self.hcl_remaining_ml,
                 "naclo_remaining_ml": self.naclo_remaining_ml,
+                "floc_remaining_ml": self.floc_remaining_ml,
                 "hcl_initial": self.cfg.get(CONF_TANK_HCL_INITIAL, DEFAULT_TANK_HCL_INITIAL),
                 "naclo_initial": self.cfg.get(CONF_TANK_NACLO_INITIAL, DEFAULT_TANK_NACLO_INITIAL),
+                "floc_initial": self.cfg.get(CONF_TANK_FLOC_INITIAL, DEFAULT_TANK_FLOC_INITIAL),
             }
         )
 
@@ -221,6 +241,13 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         self.hass.async_create_task(self._save_tank_state())
         self.async_set_updated_data(self._build_data())
         _LOGGER.info("NaClO tank reset to %.0f mL", self.naclo_remaining_ml)
+
+    def reset_floc_tank(self) -> None:
+        """Reset flocculant remaining to the initial configured volume (called from button)."""
+        self.floc_remaining_ml = self.cfg.get(CONF_TANK_FLOC_INITIAL, DEFAULT_TANK_FLOC_INITIAL)
+        self.hass.async_create_task(self._save_tank_state())
+        self.async_set_updated_data(self._build_data())
+        _LOGGER.info("Floc tank reset to %.0f mL", self.floc_remaining_ml)
 
     # ------------------------------------------------------------------
     # Tank tracking – pump binary sensor state change handlers
@@ -264,6 +291,21 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             _LOGGER.info("NaClO: dosed %.1f mL → %.0f mL remaining", dosed, self.naclo_remaining_ml)
         except (ValueError, AttributeError):
             _LOGGER.warning("Could not read dosed chlorine volume from %s", dosed_entity)
+
+    @callback
+    def _handle_floc_pump_state(self, event: Event) -> None:
+        """Subtract dosed flocculant volume from tank when floc pump finishes."""
+        old = event.data.get("old_state")
+        new = event.data.get("new_state")
+        if not (old and new and old.state == "on" and new.state == "off"):
+            return
+        if self.floc_remaining_ml is None:
+            return
+        dosed = self.cfg.get(CONF_FLOC_VOLUME, DEFAULT_FLOC_VOLUME)
+        self.floc_remaining_ml = max(0.0, self.floc_remaining_ml - dosed)
+        self.async_set_updated_data(self._build_data())
+        self.hass.async_create_task(self._save_tank_state())
+        _LOGGER.info("Floc: dosed %.1f mL → %.0f mL remaining", dosed, self.floc_remaining_ml)
 
     # ------------------------------------------------------------------
     # Safety check
@@ -548,6 +590,7 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             "automation_enabled": self.automation_enabled,
             "hcl_remaining_ml": self.hcl_remaining_ml,
             "naclo_remaining_ml": self.naclo_remaining_ml,
+            "floc_remaining_ml": self.floc_remaining_ml,
         }
 
     async def _async_update_data(self) -> dict:

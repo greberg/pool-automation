@@ -13,12 +13,17 @@
           "chlorine_min": "Minimum free chlorine (ppm)",
           "chlorine_max": "Maximum free chlorine (ppm)",
           "chlorine_target": "Target free chlorine (ppm)",
-          "hcl_concentration": "HCl concentration (%)",
-          "naclo_concentration": "NaClO concentration (%)",
-"sensor_ph": "pH sensor entity ID",
+          "hcl_concentration": "HCl concentration (%) — pH down",
+          "naclo_concentration": "NaClO concentration (%) — chlorine",
+          "sensor_ph": "pH sensor entity ID",
           "sensor_orp": "ORP sensor entity ID",
           "sensor_temperature": "Water temperature sensor entity ID",
           "sensor_circulation_rpm": "Circulation pump RPM entity ID",
+          "binary_pump_ph": "pH-down pump binary sensor entity ID",
+          "binary_pump_chlorine": "Chlorine pump binary sensor entity ID",
+          "binary_pump_floc": "Flocculant pump binary sensor entity ID",
+          "sensor_dosed_ph": "pH dosed volume sensor entity ID",
+          "sensor_dosed_chlorine": "Chlorine dosed volume sensor entity ID",
           "button_dose_ph_down": "pH-down pump dose button entity ID",
           "button_dose_chlorine": "Chlorine pump dose button entity ID",
           "button_dose_floc": "Flocculant pump dose button entity ID",
@@ -30,7 +35,10 @@
           "enable_floc": "Enable automatic flocculant dosing",
           "floc_volume_ml": "Flocculant dose volume (mL)",
           "floc_duration_s": "Flocculant dose duration (s)",
-          "min_circulation_rpm": "Minimum circulation RPM required for dosing"
+          "min_circulation_rpm": "Minimum circulation RPM required for dosing",
+          "tank_hcl_initial_ml": "HCl tank initial volume (mL)",
+          "tank_naclo_initial_ml": "NaClO tank initial volume (mL)",
+          "tank_floc_initial_ml": "Flocculant tank initial volume (mL)"
         }
       }
     },
@@ -53,12 +61,15 @@
           "chlorine_min": "Minimum free chlorine (ppm)",
           "chlorine_max": "Maximum free chlorine (ppm)",
           "chlorine_target": "Target free chlorine (ppm)",
-          "hcl_concentration": "HCl concentration (%)",
-          "naclo_concentration": "NaClO concentration (%)",
+          "hcl_concentration": "HCl concentration (%) — pH down",
+          "naclo_concentration": "NaClO concentration (%) — chlorine",
           "enable_floc": "Enable automatic flocculant dosing",
           "floc_volume_ml": "Flocculant dose volume (mL)",
           "floc_duration_s": "Flocculant dose duration (s)",
-          "min_circulation_rpm": "Minimum circulation RPM required for dosing"
+          "min_circulation_rpm": "Minimum circulation RPM required for dosing",
+          "tank_hcl_initial_ml": "HCl tank initial volume (mL)",
+          "tank_naclo_initial_ml": "NaClO tank initial volume (mL)",
+          "tank_floc_initial_ml": "Flocculant tank initial volume (mL)"
         }
       }
     }

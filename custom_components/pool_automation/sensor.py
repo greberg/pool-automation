@@ -32,6 +32,7 @@ async def async_setup_entry(
             PoolDoseChlorineSensor(coordinator, entry),
             PoolHclRemainingSensor(coordinator, entry),
             PoolNacloRemainingSensor(coordinator, entry),
+            PoolFlocRemainingSensor(coordinator, entry),
         ]
     )
 
@@ -169,4 +170,19 @@ class PoolNacloRemainingSensor(PoolSensorBase):
     @property
     def native_value(self):
         val = self._data.get("naclo_remaining_ml")
+        return round(val, 0) if val is not None else None
+
+
+class PoolFlocRemainingSensor(PoolSensorBase):
+    """Sensor for remaining flocculant tank volume."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "floc_remaining_ml", "Pool Flocculant Tank Remaining")
+        self._attr_native_unit_of_measurement = "mL"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:water-opacity"
+
+    @property
+    def native_value(self):
+        val = self._data.get("floc_remaining_ml")
         return round(val, 0) if val is not None else None

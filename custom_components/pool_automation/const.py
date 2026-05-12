@@ -38,8 +38,8 @@ DEFAULT_PH_TARGET = 7.4
 DEFAULT_CHLORINE_MIN = 1.0
 DEFAULT_CHLORINE_MAX = 3.0
 DEFAULT_CHLORINE_TARGET = 1.5
-DEFAULT_HCL_CONCENTRATION = 15.0
-DEFAULT_NACLO_CONCENTRATION = 12.5
+DEFAULT_HCL_CONCENTRATION = 9.0
+DEFAULT_NACLO_CONCENTRATION = 12.0
 DEFAULT_ENABLE_FLOC = True
 DEFAULT_FLOC_VOLUME = 10.0
 DEFAULT_FLOC_DURATION = 55
@@ -83,6 +83,7 @@ ENTITY_NACLO_REMAINING = "naclo_remaining_ml"
 # v3: Binary pump state sensors (for safety checks and tank tracking)
 CONF_BINARY_PUMP_PH = "binary_pump_ph"
 CONF_BINARY_PUMP_CHLORINE = "binary_pump_chlorine"
+CONF_BINARY_PUMP_FLOC = "binary_pump_floc"
 
 # v3: Sensors reporting the actual volume dosed each cycle (for tank tracking)
 CONF_SENSOR_DOSED_PH = "sensor_dosed_ph"
@@ -91,9 +92,11 @@ CONF_SENSOR_DOSED_CHLORINE = "sensor_dosed_chlorine"
 # v3: Initial tank volumes (mL) — changing these in options = "I just refilled"
 CONF_TANK_HCL_INITIAL = "tank_hcl_initial_ml"
 CONF_TANK_NACLO_INITIAL = "tank_naclo_initial_ml"
+CONF_TANK_FLOC_INITIAL = "tank_floc_initial_ml"
 
 DEFAULT_TANK_HCL_INITIAL = 5000.0   # 5 litres
 DEFAULT_TANK_NACLO_INITIAL = 5000.0  # 5 litres
+DEFAULT_TANK_FLOC_INITIAL = 1000.0  # 1 litre
 
 # v3: HA event names fired by the dosing cycle
 EVENT_DOSING_STARTED = "pool_automation_dosing_started"
