@@ -15,8 +15,7 @@
           "chlorine_target": "Target free chlorine (ppm)",
           "hcl_concentration": "HCl concentration (%)",
           "naclo_concentration": "NaClO concentration (%)",
-          "mqtt_topic_prefix": "MQTT topic prefix",
-          "sensor_ph": "pH sensor entity ID",
+"sensor_ph": "pH sensor entity ID",
           "sensor_orp": "ORP sensor entity ID",
           "sensor_temperature": "Water temperature sensor entity ID",
           "sensor_circulation_rpm": "Circulation pump RPM entity ID",
@@ -36,7 +35,6 @@
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to MQTT broker",
       "unknown": "Unexpected error"
     },
     "abort": {

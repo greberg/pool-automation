@@ -17,7 +17,6 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import (
@@ -43,7 +42,6 @@ from .const import (
     CONF_FLOC_VOLUME,
     CONF_HCL_CONCENTRATION,
     CONF_MIN_CIRCULATION,
-    CONF_MQTT_TOPIC_PREFIX,
     CONF_NACLO_CONCENTRATION,
     CONF_NUMBER_DURATION_FLOC,
     CONF_NUMBER_VOLUME_CHLORINE,
@@ -93,17 +91,13 @@ from .const import (
     PRIORITY_PH_LOW,
     STORE_KEY,
     STORE_VERSION,
-    TOPIC_ADD_CHLORINE,
-    TOPIC_ADD_PH,
-    TOPIC_ORP_PH,
-    TOPIC_RECOMMENDED_PRIORITY,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class PoolAutomationCoordinator(DataUpdateCoordinator):
-    """Manage pool automation state, MQTT, dosing loop, and tank tracking."""
+    """Manage pool automation state, dosing loop, and tank tracking."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
@@ -139,34 +133,12 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         """Return merged config + options."""
         return {**self.entry.data, **self.entry.options}
 
-    def _topic(self, suffix: str) -> str:
-        prefix = self.cfg.get(CONF_MQTT_TOPIC_PREFIX, "pool")
-        return f"{prefix}/{suffix}"
-
     # ------------------------------------------------------------------
     # Setup / teardown
     # ------------------------------------------------------------------
     async def async_setup(self) -> None:
-        """Subscribe to MQTT, register dosing loop, and set up tank tracking."""
+        """Register dosing loop and set up tank tracking."""
         await self._load_tank_state()
-
-        subscribe = mqtt.async_subscribe
-        self._subscriptions.append(
-            await subscribe(self.hass, self._topic(TOPIC_ORP_PH), self._handle_orp_ph)
-        )
-        self._subscriptions.append(
-            await subscribe(self.hass, self._topic(TOPIC_ADD_PH), self._handle_add_ph)
-        )
-        self._subscriptions.append(
-            await subscribe(self.hass, self._topic(TOPIC_ADD_CHLORINE), self._handle_add_chlorine)
-        )
-        self._subscriptions.append(
-            await subscribe(
-                self.hass,
-                self._topic(TOPIC_RECOMMENDED_PRIORITY),
-                self._handle_recommended_priority,
-            )
-        )
 
         # Hourly dosing cycle (replaces pool_auto_dose_* YAML automations)
         self._subscriptions.append(
@@ -195,12 +167,12 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             )
 
         _LOGGER.info(
-            "Pool Automation v3: MQTT + dosing loop (%ds) + tank tracking active",
+            "Pool Automation v3: dosing loop (%ds) + tank tracking active",
             DOSING_INTERVAL_SECONDS,
         )
 
     async def async_unload(self) -> None:
-        """Unsubscribe from MQTT and cancel all trackers."""
+        """Cancel all trackers and subscriptions."""
         for unsub in self._subscriptions:
             unsub()
         self._subscriptions.clear()
@@ -249,46 +221,6 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         self.hass.async_create_task(self._save_tank_state())
         self.async_set_updated_data(self._build_data())
         _LOGGER.info("NaClO tank reset to %.0f mL", self.naclo_remaining_ml)
-
-    # ------------------------------------------------------------------
-    # MQTT inbound handlers
-    # ------------------------------------------------------------------
-    @callback
-    def _handle_orp_ph(self, msg: mqtt.ReceiveMessage) -> None:
-        payload = msg.payload
-        try:
-            orp_str, ph_str = payload.split(",")
-            if "unavailable" in (orp_str, ph_str):
-                _LOGGER.warning("Unavailable ORP/pH values: %s", payload)
-                return
-            self.orp = float(orp_str.strip())
-            self.ph = float(ph_str.strip())
-            self._update_fc_estimate()
-            self._update_priority()
-            self.async_set_updated_data(self._build_data())
-        except Exception as err:
-            _LOGGER.error("Error parsing pool/orpph: %s – %s", payload, err)
-
-    @callback
-    def _handle_add_ph(self, msg: mqtt.ReceiveMessage) -> None:
-        try:
-            self.dose_ph_ml = float(msg.payload)
-            self.async_set_updated_data(self._build_data())
-        except ValueError:
-            _LOGGER.error("Bad add_ph payload: %s", msg.payload)
-
-    @callback
-    def _handle_add_chlorine(self, msg: mqtt.ReceiveMessage) -> None:
-        try:
-            self.dose_chlorine_ml = float(msg.payload)
-            self.async_set_updated_data(self._build_data())
-        except ValueError:
-            _LOGGER.error("Bad add_chlorine payload: %s", msg.payload)
-
-    @callback
-    def _handle_recommended_priority(self, msg: mqtt.ReceiveMessage) -> None:
-        self.priority = msg.payload.strip()
-        self.async_set_updated_data(self._build_data())
 
     # ------------------------------------------------------------------
     # Tank tracking – pump binary sensor state change handlers
@@ -638,9 +570,9 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         self.ph = _state_float(ph_entity)
         self.orp = _state_float(orp_entity)
         self.temperature = _state_float(temp_entity)
-
-        if self.ph is not None and self.orp is not None and self.orp > 0:
-            self._update_fc_estimate()
-            self._update_priority()
+        self._update_fc_estimate()
+        self._update_priority()
+        self.dose_ph_ml = self.calculate_ph_dose_ml()
+        self.dose_chlorine_ml = self.calculate_chlorine_dose_ml()
 
         return self._build_data()

@@ -12,7 +12,6 @@ CONF_CHLORINE_MAX = "chlorine_max"
 CONF_CHLORINE_TARGET = "chlorine_target"
 CONF_HCL_CONCENTRATION = "hcl_concentration"
 CONF_NACLO_CONCENTRATION = "naclo_concentration"
-CONF_MQTT_TOPIC_PREFIX = "mqtt_topic_prefix"
 CONF_SENSOR_PH = "sensor_ph"
 CONF_SENSOR_ORP = "sensor_orp"
 CONF_SENSOR_TEMP = "sensor_temperature"
@@ -41,22 +40,10 @@ DEFAULT_CHLORINE_MAX = 3.0
 DEFAULT_CHLORINE_TARGET = 1.5
 DEFAULT_HCL_CONCENTRATION = 15.0
 DEFAULT_NACLO_CONCENTRATION = 12.5
-DEFAULT_MQTT_TOPIC_PREFIX = "pool"
 DEFAULT_ENABLE_FLOC = True
 DEFAULT_FLOC_VOLUME = 10.0
 DEFAULT_FLOC_DURATION = 55
 DEFAULT_MIN_CIRCULATION = 1000
-
-# MQTT topics (relative to prefix)
-TOPIC_ORP_PH = "orpph"
-TOPIC_FC = "fc"
-TOPIC_EXPERIMENT_FC = "experiment_fc"
-TOPIC_PRIORITY = "priority"
-TOPIC_RECOMMENDED_PRIORITY = "recommendedpriority"
-TOPIC_CALC_PH = "calculateamountph"
-TOPIC_ADD_PH = "addamountph"
-TOPIC_CALC_CHLORINE = "calculateamountchlorine"
-TOPIC_ADD_CHLORINE = "addamountchlorine"
 
 # Priority states
 PRIORITY_OK = "OK"
