@@ -466,12 +466,14 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------
     def _update_fc_estimate(self) -> None:
         """Estimate free chlorine from ORP and pH using calibrated formula."""
-        if self.orp is None or self.ph is None:
+        if self.orp is None or self.ph is None or self.orp <= 0:
+            self.experimental_fc = None
             return
         try:
             ph_offset = FC_ORP_BASE + FC_PH_FACTOR * (self.ph - FC_PH_REFERENCE)
             exponent = (self.orp - ph_offset) / FC_SLOPE
-            self.experimental_fc = round(10**exponent, 3)
+            result = round(10**exponent, 3)
+            self.experimental_fc = result if result > 0 else None
         except Exception as err:
             _LOGGER.error("FC estimation error: %s", err)
 
@@ -637,7 +639,7 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         self.orp = _state_float(orp_entity)
         self.temperature = _state_float(temp_entity)
 
-        if self.ph is not None and self.orp is not None:
+        if self.ph is not None and self.orp is not None and self.orp > 0:
             self._update_fc_estimate()
             self._update_priority()
 
