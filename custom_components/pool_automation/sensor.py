@@ -25,6 +25,8 @@ async def async_setup_entry(
 
     async_add_entities(
         [
+            PoolPhSensor(coordinator, entry),
+            PoolOrpSensor(coordinator, entry),
             PoolFreeChlorineSensor(coordinator, entry),
             PoolExperimentalFCSensor(coordinator, entry),
             PoolPrioritySensor(coordinator, entry),
@@ -62,6 +64,36 @@ class PoolSensorBase(CoordinatorEntity, SensorEntity):
     @property
     def _data(self) -> dict:
         return self.coordinator.data or {}
+
+
+class PoolPhSensor(PoolSensorBase):
+    """Sensor mirroring the configured pH source."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "ph", "Pool pH")
+        self._attr_native_unit_of_measurement = "pH"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_device_class = SensorDeviceClass.PH
+        self._attr_suggested_display_precision = 2
+
+    @property
+    def native_value(self):
+        return self._data.get("ph")
+
+
+class PoolOrpSensor(PoolSensorBase):
+    """Sensor mirroring the configured ORP source."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "orp", "Pool ORP")
+        self._attr_native_unit_of_measurement = "mV"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:lightning-bolt"
+        self._attr_suggested_display_precision = 0
+
+    @property
+    def native_value(self):
+        return self._data.get("orp")
 
 
 class PoolFreeChlorineSensor(PoolSensorBase):
