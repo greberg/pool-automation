@@ -18,8 +18,6 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-
-from .ml_fc_model import estimate_fc as _ml_estimate_fc
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
@@ -127,6 +125,9 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         self.naclo_remaining_ml: float | None = None
         self.floc_remaining_ml: float | None = None
 
+        # FC model — loaded off the event loop in async_setup
+        self._fc_model = None
+
     # ------------------------------------------------------------------
     # Config helpers
     # ------------------------------------------------------------------
@@ -140,6 +141,11 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------
     async def async_setup(self) -> None:
         """Register dosing loop and set up tank tracking."""
+        from .ml_fc_model import FCModel
+        import os as _os
+        weights_path = _os.path.join(_os.path.dirname(__file__), "fc_model_weights.json")
+        self._fc_model = await self.hass.async_add_executor_job(FCModel, weights_path)
+
         await self._load_tank_state()
 
         # Hourly dosing cycle (replaces pool_auto_dose_* YAML automations)
@@ -438,11 +444,15 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------
     def _update_fc_estimate(self) -> None:
         """Estimate free chlorine using the ML model (ORP + pH → ppm)."""
-        if self.orp is None or self.ph is None or self.orp <= 0:
+        if self._fc_model is None or self.orp is None or self.ph is None or self.orp <= 0:
             self.experimental_fc = None
             return
-        result = _ml_estimate_fc(self.orp, self.ph)
-        self.experimental_fc = max(result, 0.0) if result is not None else None
+        try:
+            result = self._fc_model.predict(self.orp, self.ph)
+            self.experimental_fc = round(max(result, 0.0), 3)
+        except Exception as err:
+            _LOGGER.error("FC model inference error: %s", err)
+            self.experimental_fc = None
 
     def _update_priority(self) -> None:
         """Determine dosing priority from current pH and estimated FC."""
