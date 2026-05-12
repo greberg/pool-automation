@@ -14,7 +14,7 @@ v3 changes vs v2
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -128,6 +128,10 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         # FC model — loaded off the event loop in async_setup
         self._fc_model = None
 
+        # Hard cooldown: timestamp of last successful automated dose (UTC)
+        self._last_dosed_at: datetime | None = None
+        self._dose_cooldown = timedelta(hours=1)
+
     # ------------------------------------------------------------------
     # Config helpers
     # ------------------------------------------------------------------
@@ -220,6 +224,13 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         else:
             self.floc_remaining_ml = stored.get("floc_remaining_ml", floc_initial)
 
+        ts = stored.get("last_dosed_at")
+        if ts:
+            try:
+                self._last_dosed_at = datetime.fromisoformat(ts)
+            except ValueError:
+                self._last_dosed_at = None
+
     async def _save_tank_state(self) -> None:
         await self._store.async_save(
             {
@@ -229,6 +240,7 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
                 "hcl_initial": self.cfg.get(CONF_TANK_HCL_INITIAL, DEFAULT_TANK_HCL_INITIAL),
                 "naclo_initial": self.cfg.get(CONF_TANK_NACLO_INITIAL, DEFAULT_TANK_NACLO_INITIAL),
                 "floc_initial": self.cfg.get(CONF_TANK_FLOC_INITIAL, DEFAULT_TANK_FLOC_INITIAL),
+                "last_dosed_at": self._last_dosed_at.isoformat() if self._last_dosed_at else None,
             }
         )
 
@@ -324,6 +336,14 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
         if not self.automation_enabled:
             return False, "automation disabled"
 
+        # Hard 1-hour cooldown between any two doses (survives restarts)
+        if self._last_dosed_at is not None:
+            now = datetime.now(timezone.utc)
+            elapsed = now - self._last_dosed_at
+            if elapsed < self._dose_cooldown:
+                remaining = int((self._dose_cooldown - elapsed).total_seconds() / 60)
+                return False, f"cooldown active ({remaining} min remaining)"
+
         # Circulation must be above minimum RPM
         circ_entity = self.cfg.get(CONF_SENSOR_CIRCULATION)
         min_rpm = self.cfg.get(CONF_MIN_CIRCULATION, DEFAULT_MIN_CIRCULATION)
@@ -383,6 +403,8 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             ml = self.calculate_ph_dose_ml()
             if ml and ml > 0:
                 await self.async_dose_ph()
+                self._last_dosed_at = datetime.now(timezone.utc)
+                self.hass.async_create_task(self._save_tank_state())
                 await self._start_chemicals_timer()
                 self.hass.bus.async_fire(
                     EVENT_DOSING_STARTED,
@@ -396,6 +418,8 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             ml = self.calculate_chlorine_dose_ml()
             if ml and ml > 0:
                 await self.async_dose_chlorine()
+                self._last_dosed_at = datetime.now(timezone.utc)
+                self.hass.async_create_task(self._save_tank_state())
                 await self._start_chemicals_timer()
                 self.hass.bus.async_fire(
                     EVENT_DOSING_STARTED,
@@ -422,6 +446,8 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
                 safe_floc, reason_floc = self._safe_to_dose(check_timer=False)
                 if safe_floc:
                     await self.async_dose_floc()
+                    self._last_dosed_at = datetime.now(timezone.utc)
+                    self.hass.async_create_task(self._save_tank_state())
                     self.hass.bus.async_fire(
                         EVENT_DOSING_STARTED, {"type": "floc"}
                     )
@@ -594,6 +620,7 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
             "hcl_remaining_ml": self.hcl_remaining_ml,
             "naclo_remaining_ml": self.naclo_remaining_ml,
             "floc_remaining_ml": self.floc_remaining_ml,
+            "last_dosed_at": self._last_dosed_at.isoformat() if self._last_dosed_at else None,
         }
 
     async def _async_update_data(self) -> dict:
