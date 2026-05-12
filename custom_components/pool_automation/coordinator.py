@@ -18,6 +18,8 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
+
+from .ml_fc_model import estimate_fc as _ml_estimate_fc
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
@@ -83,10 +85,6 @@ from .const import (
     DOSING_INTERVAL_SECONDS,
     EVENT_DOSING_SKIPPED,
     EVENT_DOSING_STARTED,
-    FC_ORP_BASE,
-    FC_PH_FACTOR,
-    FC_PH_REFERENCE,
-    FC_SLOPE,
     PRIORITY_CHLORINE_HIGH,
     PRIORITY_CHLORINE_LOW,
     PRIORITY_OK,
@@ -439,16 +437,12 @@ class PoolAutomationCoordinator(DataUpdateCoordinator):
     # Chemistry calculations (pure Python, unit-testable)
     # ------------------------------------------------------------------
     def _update_fc_estimate(self) -> None:
-        """Estimate free chlorine from ORP and pH using calibrated formula."""
+        """Estimate free chlorine using the ML model (ORP + pH → ppm)."""
         if self.orp is None or self.ph is None or self.orp <= 0:
             self.experimental_fc = None
             return
-        try:
-            ph_offset = FC_ORP_BASE + FC_PH_FACTOR * (self.ph - FC_PH_REFERENCE)
-            exponent = (self.orp - ph_offset) / FC_SLOPE
-            self.experimental_fc = round(10**exponent, 3)
-        except Exception as err:
-            _LOGGER.error("FC estimation error: %s", err)
+        result = _ml_estimate_fc(self.orp, self.ph)
+        self.experimental_fc = max(result, 0.0) if result is not None else None
 
     def _update_priority(self) -> None:
         """Determine dosing priority from current pH and estimated FC."""
